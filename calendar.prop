@@ -11,7 +11,7 @@
   "modules" : { 
     "calendar" :   {
       "description": "Création ou Requête d'un calendrier Google Calendar",
-      "version"    : "1.4",
+      "version"    : "2.2",
       "url"        : "https://www.google.com/calendar/feeds/[FIXME]%40gmail.com/private-[FIXME]/full?alt=json",
       "email"      : "[FIXME]@gmail.com",
       "password"   : "[FIXME]",
