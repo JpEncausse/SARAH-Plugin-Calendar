@@ -145,7 +145,7 @@
 
   <rule id="ruleCalendar">
     <tag>out.action=new Object(); </tag>
-    <item weight="2">Sarah</item>
+    <item>Sarah</item>
     <one-of>
       <item>
         <ruleref uri="#ruleCheckEvent"/>
