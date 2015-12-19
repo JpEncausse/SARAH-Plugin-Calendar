@@ -3,25 +3,31 @@
     "calendar" :   { 
       "name"       : "calendar",
       "description": "Permet de vocaliser du texte à des moments précis. GoogleCalendar devient alors une timeline. Couplé à des règles Ifttt.com ça devient un pont entre la maison et internet.",
-      "time"       : "0 */5 * * * *",
-      "url"        : "https://www.google.com/calendar/feeds/[FIXME]%40gmail.com/private-[FIXME]/full?alt=json"
+      "time"       : "0 */5 * * * *"
     }
   },
   
   "modules" : { 
     "calendar" :   {
       "description": "Création ou Requête d'un calendrier Google Calendar",
-      "version"    : "2.2",
-      "url"        : "https://www.google.com/calendar/feeds/[FIXME]%40gmail.com/private-[FIXME]/full?alt=json",
-      "email"      : "[FIXME]@gmail.com",
-      "password"   : "[FIXME]",
-      "details"    : "évènement généré",
+      "version"    : "5.0",
+      "calid"      : "",
+      "details"    : "évènement généré pour SARAH",
       "location"   : "",
-      "startDay"   :  9, 
-      "endDay"     : 18, 
-      "endShort"   : 60,
-      "endMemo"    :  5, 
-      "reminder"   : 30  
+      "start"      :  9, 
+      "end"        : 18, 
+      "event"      : 60,
+      "memo"       :  5,
+      
+      "calendar_id"            : "",
+      "calendar_secret"        : "",
+      "calendar_clientid"      : "",
+      "calendar_redirect_uris" : "urn:ietf:wg:oauth:2.0:oob",
+      
+      "calendar_access_token"  : "",
+      "calendar_token_type"    : "",
+      "calendar_refresh_token" : "",
+      "calendar_expiry_date"   : ""
     }
   }
 }

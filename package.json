@@ -1,0 +1,14 @@
+{
+  "name": "calendar",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JpEncausse/SARAH-Plugin-Calendar.git"
+  },
+  "dependencies": {
+    "googleapis": "~2.1.5",
+    "google-auth-library": "~0.9.6"
+  },
+  "devDependencies": {
+
+  }
+}

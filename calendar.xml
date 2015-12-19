@@ -142,6 +142,8 @@
   </tag>
 
   <!-- ========================================== -->
+  <!--  SARAH                                     -->
+  <!-- ========================================== -->
 
   <rule id="ruleCalendar">
     <tag>out.action=new Object(); </tag>
@@ -165,20 +167,21 @@
 
   <rule id="ruleCheckEvent">
     <example>Sarah qu'est ce qui est prévu aujourd'hui ?</example>
-    <tag>out.action=new Object(); </tag>
+    <tag>
+      out.action=new Object();
+      out.check="next";
+    </tag>
     <one-of>
       <item>qu'est ce qui est prévu</item>
       <item>quelle est le planning</item>
       <item>est ce que j'ai des rendez-vous</item>
     </one-of>
-    <one-of>
-      <item>
-        aujourd'hui <tag>out.date="today";</tag>
-      </item>
-      <item>
-        demain <tag>out.date="tomorrow";</tag>
-      </item>
-    </one-of>
+    <item repeat="0-1">
+	    <one-of>
+	      <item>aujourd'hui <tag>out.check="today";</tag></item>
+	      <item>demain <tag>out.check="tomorrow";</tag></item>
+	    </one-of>
+    </item>
   </rule>
 
   <rule id="ruleAddEvent">
@@ -193,7 +196,7 @@
         rendez-vous <tag>out.title = "Rendez-Vous"</tag>
       </item>
       <item>
-        rappel <tag>out.title = "Rappel"</tag>
+        rappel <tag>out.title = "Rappel"; out.duration = 30 </tag>
       </item>
       <item>
         évènement <ruleref special="GARBAGE" /> dans le calendrier <tag>out._attributes.dictation = "true"</tag>
@@ -232,6 +235,8 @@
     <tag>out.relativeTime = "true";</tag>
   </rule>
 
+  <!-- ========================================== -->
+  <!--  SARAH (end)                               -->
   <!-- ========================================== -->
 
   <!--    

@@ -1,398 +1,240 @@
-var moment = require('moment');
-moment.lang('fr');
+var fs         = require('fs');
+var readline   = require('readline');
+var google     = require('googleapis');
+var googleAuth = require('google-auth-library');
+
+var rfc_3339   = 'YYYY-MM-DD[T]HH:mm:ssZ'
+var moment     = require('moment');
+    moment.locale('fr');
 
 // ------------------------------------------
-//  ADD EVENT
+//  SARAH
 // ------------------------------------------
 
-var https   = require('https');
-var request = require('request');
-var url     = require('url');
-var qs      = require('querystring');
+exports.init = function(){ 
+  authorize(function(auth){ /* NONE */ });
+}
+
+exports.action = function(data, next){  
+  if (data.check) {
+    checkCalendar(data, next);
+  } else {
+    createCalendar(data, next);
+  }
+}
+
+exports.cron = function(next){
+  checkCalendar({}, next);
+}
+
+// ------------------------------------------
+//  CHECK
+// ------------------------------------------
+
+var checkCalendar = function(data, callback){
+  var config = Config.modules.calendar;
+  authorize(function(auth){ 
+    
+    listEvents(auth, config.calendar_id, function(events){
+      if (!events) return callback();
+      
+      // Next 5 minutes OR next day
+      var start  = new moment();
+      var end    = new moment(start).add(5, 'minutes');
+      if (data.check == 'tomorrow'){
+        start = start.add(1, 'day').set('hour', 0).set('minute', 0);
+        end   = new moment(start).add(5, 'minutes');
+      }
+      
+      // Filter date/time
+      var events = events.filter(function(event){ 
+        var begin = moment(event.start.dateTime, rfc_3339);
+        return begin.isBetween(start, end) ? event : undefined;
+      });
+
+      // BUild TTS
+      var tts = "";
+      events.map(function(event){
+        var begin = moment(event.start.dateTime, rfc_3339);
+        tts += i18n("plugin.calendar.inEvent", begin.format("HH"), begin.format("mm"), event.summary);
+      })
+      
+      callback({ "events": events, "tts": tts });
+    });
+    
+  });
+}
+
+// ------------------------------------------
+//  CREATE
+// ------------------------------------------
+
+// ruleAddEvent:    title=Rendez-Vous&Day=11&Month=12&Year=2014&IsValidDate=true&Hour=18&Minute=0
+// ruleAddReminder: relativeTime=true&minute=5
+
+var createCalendar = function(data, callback){
+  var config = Config.modules.calendar;
+  authorize(function(auth){
+    
+    var start = new moment();
+    var end   = new moment();
+    
+    if (data.relativeTime){
+      
+           if (data.hour)   end.add(data.hour,   'hour');
+      else if (data.minute) end.add(data.minute, 'minute');
+      else if (config.memo) end.add(config.memo, 'minute');
+      
+    } else if (data.Year && data.Month && data.Day && data.Hour && data.Minute) {
+      
+      start.set('year'  , data.Year);
+      start.set('month' , data.Month);
+      start.set('date'  , data.Day);
+      start.set('hour'  , data.Hour);
+      start.set('minute', data.Minute);
+      end = new moment(start).add(data.duration || config.event, 'minute');
+      
+    } else { return callback(); }
+    
+    createEvent(auth, config.calendar_id, {
+      'summary': data.title || data.dictation || 'Rappel',
+      'start': { dateTime: start.format(rfc_3339), 'timeZone': 'Europe/Paris' },
+      'end':   { dateTime: end.format(rfc_3339)  , 'timeZone': 'Europe/Paris' },
+      'description': config.details
+    },
+    function(){ callback(); });
+    
+  });
+}
+
+// ------------------------------------------
+//  GOOGLE CALENDAR : AUTHENTICATION
+// ------------------------------------------
+
+var SCOPES = ['https://www.googleapis.com/auth/calendar'];
 
 /**
- * Parse and Store authentification data
- * @param data the body of login request
+ * Create an OAuth2 client with the given credentials, and then execute the
+ * given callback function.
+ *
+ * @param {Object} credentials The authorization client credentials.
+ * @param {function} callback The callback to call with the authorized client.
  */
-var auths = {};
-var setAuth = function(data){
-  data.split('\n').forEach(function (dataStr) {
-    var datas = dataStr.split('=');
-    auths[datas[0]] = datas[1];
+function authorize(callback) {
+  var config = Config.modules.calendar;
+  var clientSecret = config.calendar_secret;
+  var clientId = config.calendar_clientid;
+  var redirectUrl = config.calendar_redirect_uris;
+  var auth = new googleAuth();
+  var oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUrl);
+
+  // Check if we have previously stored a token.
+  if (!config.calendar_expiry_date) {
+    getNewToken(oauth2Client, callback);
+  } else {
+    oauth2Client.credentials = {
+      "access_token"  : config.calendar_access_token,
+      "token_type"    : config.calendar_token_type  ,
+      "refresh_token" : config.calendar_refresh_token,
+      "expiry_date"   : config.calendar_expiry_date 
+    };
+    callback(oauth2Client);
+  }
+}
+
+/**
+ * Get and store new token after prompting for user authorization, and then
+ * execute the given callback with the authorized OAuth2 client.
+ *
+ * @param {google.auth.OAuth2} oauth2Client The OAuth2 client to get token for.
+ * @param {getEventsCallback} callback The callback to call with the authorized
+ *     client.
+ */
+function getNewToken(oauth2Client, callback) {
+  var authUrl = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES
+  });
+  warn('>>> Authorize this app by visiting this url: ', authUrl);
+  var rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  rl.question('>>> Enter the code from that page here: ', function(code) {
+    rl.close();
+    oauth2Client.getToken(code, function(err, token) {
+      if (err) {
+        info('Error while trying to retrieve access token', err);
+        return;
+      }
+      oauth2Client.credentials = token;
+      storeToken(token);
+      callback(oauth2Client);
+    });
   });
 }
 
 /**
- * Login to google to get credential
- * @param email the google email
- * @param password the google password
+ * Store token to disk be used in later program executions.
+ *
+ * @param {Object} token The token to store to disk.
  */
-var login = function(email, password, callback){
-
-  var POST = {
-    accountType: "HOSTED_OR_GOOGLE",
-    Email: email, 
-    Passwd: password,
-    service: "cl",
-    source: 'WSRNodeJS',
-  };
-  var content = qs.stringify(POST);
-  
-  var LOGIN = {
-    host: "www.google.com",
-    path: '/accounts/ClientLogin',
-    port: 443,
-    method: "POST",
-    headers: {
-      'Content-Length': content.length,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    }
-  };
-
-  var data    = "";
-  var request = https.request(LOGIN, function(response){
-    response.on("data", function(chunk) { data = data + chunk; });
-    response.on("end" , function()      { setAuth(data); callback(); });
-  });
-  
-  request.write(content);
-  request.end();
-};
-
-
-/**
- * Add Event to Calendar
- * @param event the event object
- * @param path the url to open
- */
-var addEvent = function(event, path){
- 
-  var POST = {
-    "data": {
-      "title"        : event.title,
-      "details"      : event.details,
-      "transparency" : "opaque",
-      "status"       : "confirmed",
-      "location"     : event.location,
-      "when": [{
-        "start": event.start, // "2012-08-19T15:00:00.000Z"
-        "end"  : event.end    // "2012-08-19T17:00:00.000Z"
-      }]
-    }
-  };
-  
-  var ADD_EVENT = {
-    host: "www.google.com",
-    path: path ? path : "/calendar/feeds/default/private/full?alt=jsonc",
-    port: 443,
-    method: "POST",
-    headers: {
-      'Authorization': 'GoogleLogin auth=' + auths.Auth,
-      'Content-Type' : 'application/json',
-    }
-  };
-  
-  var buffer  = "";
-  var request = https.request(ADD_EVENT, function(response) {
-    
-    if (response.statusCode == 302) {
-      var loc = url.parse(response.headers.location);
-      var redirect = loc.pathname + "?" + loc.query;
-      addEvent(event, redirect);
-    } 
-    else { 
-      response.on("data",  function(data) { buffer += data; });
-      response.on("end",   function()     {  });
-      response.on("close", function()     {  });
-    }
-  });
-  
-  request.write(JSON.stringify(POST));
-  request.end();
-  request.on('error', function(ex) { console.error("Error", ex); });
-};
-
-
-/**
- * Helper to login / add event in a single function
- * @param email see login()
- * @param password see login()
- * @param event see addEvent()
- */
-var addCalendarEvent = function(email, password, event){
-  login(email, password, function(){
-     addEvent(event);
-  });
+function storeToken(token) {
+  var config = Config.modules.calendar;
+  config.calendar_access_token  = token.access_token;
+  config.calendar_token_type    = token.token_type;
+  config.calendar_refresh_token = token.refresh_token;
+  config.calendar_expiry_date   = token.expiry_date;
+  SARAH.ConfigManager.save();
+  info('Token stored in properties');
 }
 
-
-
 // ------------------------------------------
-//  QUERY CALENDAR
+//  GOOGLE CALENDAR : API
 // ------------------------------------------
-
-var CACHED_EVENTS = {};
-
-var matchEntry = function(entry, options){
-  
-  
-  
-  var startDate, endDate, reminder;
-  if (!entry['gd$when']){
-    console.log('Skipping gd$recurrence');
-    return;
-  } 
-  else {
-    var when  = entry['gd$when'][0];
-    startDate = when.startTime;
-    endDate   = when.endTime;
-    reminder  = when['gd$reminder'] ? when['gd$reminder'][0] : 0;
-  }  
-  
-  var title   = entry.title.$t;
-  var url     = entry['gd$where'][0].valueString;
-  var uid     = entry['gCal$uid'].value +"/"+ startDate;
-  
-  var rgxp  = /(.*) (https*:\/\/.+)$/i;
-  var match = title.match(rgxp);
-  if (match && match.length >= 2){
-    title = match[1];
-    url   = match[2];
-  }
-  
-  // Check cache
-  if (options.cache && CACHED_EVENTS[uid]){ return false; }
-  
-  // .
-  var start    = moment(startDate); 
-  var start_ms = start.valueOf();
- 
-  // Check reminder
-  if (options.reminder){
-    var now_ms   = (new Date()).getTime();
-    var rmdr_ms  = reminder.minutes ? 1000*60*reminder.minutes : reminder.hours ? 1000*60*60*reminder.hours : 0; 
-    if (rmdr_ms == 30*60*1000){ rmdr_ms = 5*60*1000; } // Fix GCal Bug
-    
-    var before = (start_ms - rmdr_ms) - now_ms;
-    if (before > 0){ 
-      if (before < 1000*60*60*6) { console.log('[Event] '+ title +' in '+moment.duration(before).humanize() + ' ('+ url +')'); } 
-      return false; 
-    }
-    
-    var after  = now_ms - (start_ms + 1000*60*5)
-    if (after > 0) { 
-      if (after < 1000*60*60*6) { console.log('[Event] '+ title +' exceed '+moment.duration(after).humanize() + ' ('+ url +')'); }
-      return false; 
-    }
-  }
- 
-  // Check event after start date
-  if (options.start){
-    var end_ms = moment(endDate).valueOf();
-    if (end_ms < options.start){ return false; }
-  }
-  
-  // Check event before end date
-  if (options.end){
-    if (start_ms > options.end){ return false; }
-  }
-  
-  // Perform cache
-  if (options.cache) { CACHED_EVENTS[uid] = true;}
-  
-  // Compute time
-  if (options.duration){
-    var now = moment();
-    title += ' ' + start.from(now);
-  }
-  
-  
-  
-  if (options.time){
-    title += ' à ' + start.format("HH:mm");
-  }
-  url = url == '' ? false : url;
-  return { 'tts' : title, 'url' : url } ;
-}
 
 /**
- * Check events at the given calendar URL 
- * then callback with array of events
- * https://developers.google.com/google-apps/calendar/v2/reference
- *  
- * @param url the calendar private url (full with json)
- * @param callback the function to call with event array
- * @param options a configuration object
+ * Lists the next 10 events on the user's calendar.
+ * @param {google.auth.OAuth2} auth An authorized OAuth2 client.
  */
-var checkCalendar = function(url, callback, options){
-  
-  var request = require('request');
-  var now = moment();
-  var url = url + '&singleevents=true' + '&start-min=' + now.subtract('days', 3).format('YYYY-MM-DD') + '&start-max=' + now.add('days', 6).format('YYYY-MM-DD');
-  request({ 'uri' : url }, function (err, response, body){
+var listEvents = function(auth, calendar_id, callback) {
+  var calendar = google.calendar('v3');
+  calendar.events.list({
+    auth: auth,
+    calendarId: calendar_id,
+    timeMin: (new Date()).toISOString(),
+    maxResults: 10,
+    singleEvents: true,
+    orderBy: 'startTime'
+  }, function(err, response) {
     
-    if (err || response.statusCode != 200) {
-      callback(false);
-      return;
+    if (err) {
+      info('The API returned an error: ' + err);
+      return callback();
     }
     
-    var lastModified = response.headers['last-modified'];
-    
-    var json = JSON.parse(body);
-    if (!json || !json.feed || !json.feed.entry){
-      callback(false);
-      return;
+    var events = response.items;
+    if (events.length == 0) {
+      info('No upcoming events found.');
     }
-    
-    var events  = [];
-    var entries = json.feed.entry;
-    for (var i = 0 ; i < entries.length ; i++){
-      var event = matchEntry(entries[i], options); // + start date
-      if (event){ events.push(event); }
-    }
-    
     callback(events);
   });
 }
 
-// ------------------------------------------
-//  EXPORTS
-// ------------------------------------------
+var createEvent = function(auth, calendar_id, event, callback){
 
-exports.cron = function(callback, task, SARAH){
-  if (!task.url){
-    console.log("Missing Calendar URL");
-    return;
-  }
-  
-  checkCalendar(task.url, function(events){
-    if (!events || events.length <= 0){ callback({}); return; }
-    var tts = '';
-    events.forEach(function(event){
-      // Send request for each URL 
-      if (event.url){
-        console.log('[Event] trigger: ' + event.url);
-        var request = require('request'); 
-        request({ 'uri' : event.url }, function (err, response, body){
-          if (err || response.statusCode != 200) { console.log('Cronlendar:',err); return; }
-          callback({"tts" : body});
-        });
-      
-      } 
-      // Prepare TTS
-      else { tts += event.tts + '. '; }
-    })
-    if (tts){ callback({"tts" : 'Petit rappel: '+tts}); } else { callback({}); }
-  }, { 
-    "cache"    : true, 
-    "duration" : true,
-    "reminder" : true
+  var calendar = google.calendar('v3');
+  calendar.events.insert({
+    auth: auth,
+    calendarId: calendar_id,
+    resource: event
+  }, function(err, event) {
+    
+    if (err) {
+      info('The API returned an error: ' + err);
+      return callback();
+    }
+    callback(event);
   });
 }
 
-
-exports.action = function(data, callback, config, SARAH){
-  // Retrieve config
-  config = config.modules.calendar;
-  if (!config.url){
-    console.log("Missing Calendar URL");
-    callback({});
-    return;
-  }
-  
-  // Add calendar event
-  /*
-   * Sarah ajouter un événement déjeuner dans le calendrier aujourd'hui
-   * Sarah ajouter un événement déjeuner important dans le calendrier aujourd'hui
-   * Sarah ajouter événement déjeuner important dans le calendrier aujourd'hui à 18h
-   */
-  var title = data.title;
-  if (data.dictation){ console.log(data.dictation);
-    var rgxp = /Sarah .+ événement (.+) dans le calendrier .+/i
-    var match = data.dictation.match(rgxp);
-    if (match && match.length > 1){ title = match[1]; }
-    
-    var rgxp = /Sarah .+moi (.+) dans .+/i
-    var match = data.dictation.match(rgxp);
-    if (match && match.length > 1){ title = match[1]; }
-  }
-  
-  if (title){
-    var details  = config.details;
-    var location = config.location;
-    var start    = moment();
-    
-    // Set an other date
-    if (data.Day && data.Month && data.Year){
-      start.year(data.Year);
-      start.month(data.Month-1);
-      start.date(data.Day);
-      start.hours(config.startDay);
-      start.minutes(0);
-      start.seconds(0);
-    }
-    
-    // Set an other time
-    if (data.Hour || data.minute){
-      if (data.relativeTime){ // Relative time (in x minutes)
-        start.add('hours'  ,data.AlternateHour || 0);
-        start.add('minutes',data.minute || 0);
-        details = 'Rappel de ' + start.fromNow(moment());
-      } else {
-        start.hours(data.Hour);
-        start.minutes(data.minute);
-      }
-    }
-    
-    var end = start.clone(); 
-    
-    // Short event have hours/minute otherwise it is until the end of day
-    if (data.Hour || data.minute){
-      end.add('minutes', data.relativeTime ? config.endMemo : config.endShort);
-    } else {
-      end.hours(config.endDay);
-    }
-    
-    addCalendarEvent(config.email, config.password,{
-      'title'    : title,
-      'details'  : details,
-      'location' : location,
-      'start'    : start.format('YYYY-MM-DDTHH:mm:ss'),
-      'end'      : end.format('YYYY-MM-DDTHH:mm:ss')
-    });
-    
-    callback({"tts" : ("J'ai rajouté " + start.calendar() + " l'évènement: " + title) }); 
-  }
-  
-  // Check calendar
-  else {
-  
-    var start = moment();
-    var end   = moment().eod();
-    var msg   = "Aujourd'hui";
-     
-    if (data.date == 'tomorrow'){
-      start = start.add('days', 1).sod();
-      end   =   end.add('days', 1);
-      msg   = "Demain";
-    }
-    
-    checkCalendar(config.url, function(events){
-      if (events && events.length > 0){
-        var tts = '';
-        events.forEach(function(event){
-          if (event.url){ return; }
-          tts += event.tts + '. ';
-        });
-        callback({"tts" : msg + ": " + tts});
-      } 
-      else { 
-        callback({"tts" : "Il n'y a aucun évènement de prévu "+msg }); 
-      }
-    }, { 
-      "time"  : true,
-      "start" : start.valueOf(),
-      "end"   : end.valueOf()
-    });
-  }
-}
