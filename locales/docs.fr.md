@@ -3,7 +3,8 @@ Le plugin Calendar utilise l'API Google v3 pour manipuler un calendrier Google C
 
 ## Application Google
 
-Vous devez créer une application dédié à votre installation de SARAH.
+Vous devez créer une application dédié à votre installation de SARAH. 
+Et renseigner dans le plugin les informations identifiant / secret. 
 
 ### Etape 1
 
@@ -37,8 +38,15 @@ Copier les identifiants dans les propriétés du plugin.
 
 ## Calendrier Google
 
-Aller dans Google Calendar et afficher les détails de calendrier que vous souhaitez utiliser. Puis copier sont identifiant dans les propriétés du plugin.
+Aller dans Google Calendar et afficher les détails de calendrier que vous souhaitez utiliser.
+Puis copier sont identifiant dans les propriétés du plugin.
 
 ![step 6](/plugin/calendar/www/docs/step6.jpg)
 
 ## Plugin Calendar
+
+Pour authoriser SARAH à accéder à votre projet Google il faut l'authentifier.
+
+- Au demarrage de SARAH aller sur l'URL ">>> Authorize this app by visiting this url"
+- Copier le code indiqué dans le navigateur
+- Coller ce code dans le Shell du Serveur
