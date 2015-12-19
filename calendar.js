@@ -12,7 +12,7 @@ var moment     = require('moment');
 // ------------------------------------------
 
 exports.init = function(){ 
-  authorize(function(auth){ /* NONE */ });
+  authorize(function(auth){ /*  NONE  */ });
 }
 
 exports.action = function(data, next){  
