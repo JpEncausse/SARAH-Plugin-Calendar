@@ -50,7 +50,7 @@ var checkCalendar = function(data, callback){
       }
       
       // Filter date/time
-      var events = events.filter(function(event){ console.log(event.start.dateTime)
+      var events = events.filter(function(event){
         var begin = moment(event.start.dateTime, rfc_3339);
         if (data.check != 'tomorrow' && !event.reminders.useDefault){
           begin = begin.subtract(event.reminders.overrides[0].minutes, 'minutes');
