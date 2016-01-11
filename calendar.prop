@@ -11,6 +11,8 @@
     "calendar" :   {
       "description": "Création ou Requête d'un calendrier Google Calendar",
       "version"    : "5.0",
+      "github"     : "https://github.com/JpEncausse/SARAH-Plugin-Calendar.git",
+      
       "calid"      : "",
       "details"    : "évènement généré pour SARAH",
       "location"   : "",

@@ -17,7 +17,10 @@ exports.init = function(){
 
 exports.action = function(data, next){  
   if (data.check) {
-    checkCalendar(data, next);
+    checkCalendar(data, function(json){
+      if (!json){ return next({ "tts" : i18n('plugin.calendar.noEvent') }); }
+      next(json);
+    });
   } else {
     createCalendar(data, next);
   }
@@ -43,20 +46,36 @@ var checkCalendar = function(data, callback){
       var end    = new moment(start).add(5, 'minutes');
       if (data.check == 'tomorrow'){
         start = start.add(1, 'day').set('hour', 0).set('minute', 0);
-        end   = new moment(start).add(5, 'minutes');
+        end   = new moment(start).add(1, 'day');
       }
       
       // Filter date/time
-      var events = events.filter(function(event){ 
+      var events = events.filter(function(event){ console.log(event.start.dateTime)
         var begin = moment(event.start.dateTime, rfc_3339);
+        if (data.check != 'tomorrow' && !event.reminders.useDefault){
+          begin = begin.subtract(event.reminders.overrides[0].minutes, 'minutes');
+        }
+        
         return begin.isBetween(start, end) ? event : undefined;
       });
 
-      // BUild TTS
+      // Build TTS
       var tts = "";
-      events.map(function(event){
+      events.map(function(event){ 
         var begin = moment(event.start.dateTime, rfc_3339);
-        tts += i18n("plugin.calendar.inEvent", begin.format("HH"), begin.format("mm"), event.summary);
+        if (event.location && event.location.indexOf('http') == 0){
+          
+          info('[Event] trigger: ' + event.location);
+          var request = require('request'); 
+          request({ 'uri' : event.location }, function (err, response, body){
+            if (err || response.statusCode != 200) { warn('Error calling:', event.location); return callback(); }
+            tts += body + ' ';
+          });
+          
+        } else if (event.summary){
+          tts += i18n("plugin.calendar.inEvent", begin.format("HH"), begin.format("mm"), event.summary) + '. ';
+        }
+        
       })
       
       callback({ "events": events, "tts": tts });
